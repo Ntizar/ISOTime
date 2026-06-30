@@ -65,13 +65,14 @@ export function renderIsochrones(features, mode) {
       opacity: 0.7
     }).addTo(isoLayer);
     const props = feature.properties || {};
-    const areaKm2 = (props.area / 1e6).toFixed(2);
-    const timeMin = (props.value / 60).toFixed(0);
+    const areaKm2 = props.area_km2 || (props.area ? (props.area / 1e6).toFixed(2) : '?');
+    const timeMin = props.time_min || (props.value ? Math.round(props.value / 60) : '?');
     const modeLabel = CONFIG.MODES[mode] || mode;
+    const source = props.source ? ` [${props.source.toUpperCase()}]` : '';
+
     polygon.bindPopup(
-      `<strong>Isocrona</strong><br>Modo: ${modeLabel}<br>Tiempo: ${timeMin} min<br>Área: ${areaKm2} km²`
+      `<strong>Isocrona${source}</strong><br>Modo: ${modeLabel}<br>Tiempo: ${timeMin} min<br>Área: ${areaKm2} km²`
     );
-    if (idx === 0) polygon.openPopup();
   });
 }
 
