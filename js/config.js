@@ -1,0 +1,19 @@
+export const CONFIG = {
+  ORS_BASE: 'https://api.openrouteservice.org/v2',
+  NOMINATIM_BASE: 'https://nominatim.openstreetmap.org',
+  PROFILES: { walking: 'foot-walking', car: 'driving-car' },
+  SPEEDS: { walking: 5, car: 50 },
+  COLORS: { walking: '#2563eb', car: '#f97316' },
+  MODES: { walking: 'Andando', car: 'Coche' },
+  MODE_ICONS: { walking: '🚶', car: '🚗' },
+  MIN_TIME: 5,
+  MAX_TIME: 90,
+  DEFAULT_TIME: 30,
+  DEFAULT_MODE: 'car',
+  STORAGE_KEY: 'isotime_ors_key',
+  PRESETS: [5, 10, 15, 30, 45, 60, 90],
+  ORS_TIMEOUT: 15000,
+  TILES_URL: 'https://www.ign.es/wmts/ign-base?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=IGNBaseTodo&STYLE=default&TILEMATRIXSET=EPSG:3857&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}&FORMAT=image/jpeg',
+  TILES_ATTRIBUTION: '&copy; Instituto Geogr\u00e1fico Nacional',
+  NOMINATIM_USER_AGENT: 'ISOTime/1.0'
+};

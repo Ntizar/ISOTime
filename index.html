@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISOTime — Calculadora de Isócronas en España</title>
+  <meta name="description" content="Calcula isócronas de accesibilidad en España usando datos reales de OpenRouteService">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">
+        <span class="logo-icon">🗺️</span>
+        <h1>ISOTime</h1>
+      </div>
+      <p class="tagline">Calculadora de Isócronas en España</p>
+      <button id="settings-btn" class="settings-btn" title="Configurar API Key">⚙️</button>
+    </div>
+  </header>
+  <main class="main-layout">
+    <aside class="sidebar">
+      <section class="sidebar-section">
+        <h3 class="section-title">📍 Dirección</h3>
+        <div class="search-container">
+          <input type="text" id="search-input" class="search-input" placeholder="Buscar dirección en España...">
+          <div id="search-results" class="search-results"></div>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <h3 class="section-title">🚶 Modo de desplazamiento</h3>
+        <div class="mode-selector">
+          <button class="mode-btn" data-mode="walking">
+            <span class="mode-icon">🚶</span>
+            <span class="mode-label">Andando</span>
+          </button>
+          <button class="mode-btn active" data-mode="car">
+            <span class="mode-icon">🚗</span>
+            <span class="mode-label">Coche</span>
+          </button>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <h3 class="section-title">⏱️ Tiempo de viaje</h3>
+        <div class="time-control">
+          <input type="range" id="time-slider" class="time-slider" min="5" max="90" step="5" value="30">
+          <div id="time-display" class="time-display">30 minutos</div>
+        </div>
+        <div class="presets">
+          <button class="preset-btn" data-time="5">5</button>
+          <button class="preset-btn" data-time="10">10</button>
+          <button class="preset-btn" data-time="15">15</button>
+          <button class="preset-btn active" data-time="30">30</button>
+          <button class="preset-btn" data-time="45">45</button>
+          <button class="preset-btn" data-time="60">60</button>
+          <button class="preset-btn" data-time="90">90</button>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <button id="calculate-btn" class="calculate-btn">
+          <span class="btn-text">CALCULAR ISOCRONA</span>
+          <span class="btn-loading" style="display:none;">
+            <span class="spinner"></span> Calculando...
+          </span>
+        </button>
+      </section>
+      <section class="sidebar-section results-section">
+        <h3 class="section-title">📊 Resultado</h3>
+        <div class="results-grid">
+          <div class="result-item">
+            <span class="result-label">Área</span>
+            <span id="result-area" class="result-value">—</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Radio</span>
+            <span id="result-radio" class="result-value">—</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Tiempo</span>
+            <span id="result-time" class="result-value">—</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Modo</span>
+            <span id="result-mode" class="result-value">—</span>
+          </div>
+        </div>
+      </section>
+      <div id="simulation-warning" class="simulation-warning" style="display:none;">
+        <span class="warning-icon">⚠️</span>
+        <span class="warning-text">Modo simulación — Configure una API key de ORS para datos reales</span>
+      </div>
+      <section id="export-section" class="sidebar-section export-section" style="display:none;">
+        <h3 class="section-title">📥 Exportar</h3>
+        <div class="export-buttons">
+          <button id="export-geojson" class="export-btn">
+            <span class="export-icon">📄</span>
+            <span>GeoJSON</span>
+          </button>
+          <button id="export-shp" class="export-btn">
+            <span class="export-icon">📁</span>
+            <span>Shapefile</span>
+          </button>
+        </div>
+      </section>
+    </aside>
+    <div id="map" class="map-container"></div>
+  </main>
+  <footer class="footer">
+    <p>Hecho con ❤️ por David Antizar</p>
+  </footer>
+  <div id="api-key-modal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <button id="close-modal" class="modal-close">&times;</button>
+      <h2 class="modal-title">🔑 Configurar API Key</h2>
+      <p class="modal-description">
+        Para usar isócronas reales, necesitas una API key gratuita de OpenRouteService.
+      </p>
+      <ol class="modal-steps">
+        <li>Visita <a href="https://openrouteservice.org/dev/#/signup" target="_blank">openrouteservice.org</a></li>
+        <li>Crea una cuenta gratuita</li>
+        <li>Copia tu API key</li>
+        <li>Pégala abajo</li>
+      </ol>
+      <div class="modal-form">
+        <input type="text" id="api-key-input" class="api-key-input" placeholder="Pega tu API key aquí...">
+        <div class="modal-buttons">
+          <button id="cancel-modal" class="modal-btn modal-btn-cancel">Cancelar</button>
+          <button id="save-api-key" class="modal-btn modal-btn-save">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="module" src="js/main.js?v=1"></script>
+</body>
+</html>
