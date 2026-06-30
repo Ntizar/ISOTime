@@ -50,7 +50,7 @@ export function getOrigin() {
   return null;
 }
 
-export function renderIsochrones(features, mode) {
+export function renderIsochrones(features, mode, resultMeta) {
   isoLayer.clearLayers();
   if (!features || features.length === 0) return;
   const color = CONFIG.COLORS[mode] || CONFIG.COLORS.car;
@@ -65,13 +65,15 @@ export function renderIsochrones(features, mode) {
       opacity: 0.7
     }).addTo(isoLayer);
     const props = feature.properties || {};
-    const areaKm2 = props.area_km2 || (props.area ? (props.area / 1e6).toFixed(2) : '?');
-    const timeMin = props.time_min || (props.value ? Math.round(props.value / 60) : '?');
+    // Priorizar datos del resultMeta (directo del cálculo)
+    const areaKm2 = (resultMeta && resultMeta.areaKm2) || props.area_km2 || '?';
+    const timeMin = (resultMeta && resultMeta.timeMin) || props.time_min || '?';
     const modeLabel = CONFIG.MODES[mode] || mode;
-    const source = props.source ? ` [${props.source.toUpperCase()}]` : '';
+    const src = (resultMeta?.geojson?.features?.[0]?.properties?.source || props.source || '');
+    const sourceLabel = src ? ` [${src.toUpperCase()}]` : '';
 
     polygon.bindPopup(
-      `<strong>Isocrona${source}</strong><br>Modo: ${modeLabel}<br>Tiempo: ${timeMin} min<br>Área: ${areaKm2} km²`
+      `<strong>Isocrona${sourceLabel}</strong><br>Modo: ${modeLabel}<br>Tiempo: ${timeMin} min<br>Área: ${areaKm2} km²`
     );
   });
 }
@@ -115,13 +117,14 @@ export function calcularIsocronaSim(lng, lat, modo, minutos) {
         centro_lat: lat,
         centro_lng: lng,
         simulated: true,
+        source: 'simulation',
         value: minutos * 60,
         area: areaKm2 * 1e6
       },
       geometry: { type: 'Polygon', coordinates: [coords] }
     }]
   };
-  return { geojson, areaKm2, radioMaxKm, coords, simulated: true };
+  return { geojson, areaKm2, radioMaxKm, timeMin: minutos, coords, simulated: true };
 }
 
 function calcularAreaPoligonoKm2(coords) {
