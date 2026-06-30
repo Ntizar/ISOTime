@@ -101,7 +101,7 @@ export function calcularIsocronaSim(lng, lat, modo, minutos) {
     const dLng = (r * Math.sin(ang)) / (111320 * Math.cos(lat * Math.PI / 180));
     coords.push([lng + dLng, lat + dLat]);
   }
-  const areaKm2 = calcularAreaPoligonoKm2(coords);
+  const areaKm2 = calcularAreaPoligonoKm2(coords).toFixed(2);
   const radioMaxKm = calcularRadioMaximoSim(coords, lng, lat);
   const geojson = {
     type: 'FeatureCollection',
@@ -110,7 +110,7 @@ export function calcularIsocronaSim(lng, lat, modo, minutos) {
       properties: {
         mode: modo,
         time_min: minutos,
-        area_km2: areaKm2,
+        area_km2: parseFloat(calcularAreaPoligonoKm2(coords).toFixed(2)),
         centro_lat: lat,
         centro_lng: lng,
         simulated: true,
