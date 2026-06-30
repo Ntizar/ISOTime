@@ -148,7 +148,7 @@ function setupCalculateButton() {
       currentGeoJSON = result.geojson;
       clearLayers();
       addPoint(origin.lat, origin.lng);
-      renderIsochrones(result.geojson.features, currentMode);
+      renderIsochrones(result.geojson.features, currentMode, result);
       fitBoundsToGeojson(result.geojson);
       updateResultDisplay(result);
     } catch (error) {

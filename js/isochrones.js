@@ -177,6 +177,7 @@ async function calcularIsocronaOSRM(lng, lat, minutos) {
     geojson,
     areaKm2,
     radioMaxKm,
+    timeMin: minutos,
     coords: hull,
     simulated: false
   };
