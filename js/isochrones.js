@@ -5,7 +5,6 @@ import { calcularIsocronaSim } from './map.js';
 // MAIN: Calcular isócrona (ORS → OSRM → Sim)
 // ═══════════════════════════════════════════════
 export async function calcularIsocrona(lng, lat, modo, minutos) {
-  // 1. Si hay API key ORS, usar ORS (datos más precisos)
   const apiKey = localStorage.getItem(CONFIG.STORAGE_KEY);
   if (apiKey) {
     try {
@@ -14,7 +13,6 @@ export async function calcularIsocrona(lng, lat, modo, minutos) {
       console.warn('ORS failed, trying OSRM:', e.message);
     }
   }
-  // 2. OSRM público (sin key, datos reales de routing)
   if (modo === 'car') {
     try {
       return await calcularIsocronaOSRM(lng, lat, minutos);
@@ -22,7 +20,6 @@ export async function calcularIsocrona(lng, lat, modo, minutos) {
       console.warn('OSRM failed, using simulation:', e.message);
     }
   }
-  // 3. Simulación (fallback final, o para andando sin ORS)
   return calcularIsocronaSim(lng, lat, modo, minutos);
 }
 
@@ -43,114 +40,114 @@ async function calcularIsocronaORS(lng, lat, modo, minutos, apiKey) {
     };
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': apiKey,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`ORS ${response.status}: ${errText}`);
-    }
+    if (!response.ok) throw new Error(`ORS ${response.status}: ${await response.text()}`);
     const data = await response.json();
     if (!data.features || data.features.length === 0) throw new Error('ORS: no features');
     const feature = data.features[0];
     const areaM2 = feature.properties.area || 0;
     const areaKm2 = (areaM2 / 1e6).toFixed(2);
     const radioMaxKm = calcularRadioMaximoFromCoords(feature.geometry.coordinates[0], lng, lat);
-    const enrichedFeature = {
-      ...feature,
-      properties: {
-        ...feature.properties,
-        mode: modo,
-        time_min: minutos,
-        area_km2: parseFloat(areaKm2),
-        centro_lat: lat,
-        centro_lng: lng,
-        simulated: false,
-        source: 'ors'
-      }
-    };
     return {
-      geojson: { type: 'FeatureCollection', features: [enrichedFeature] },
-      areaKm2,
-      radioMaxKm,
-      coords: feature.geometry.coordinates[0],
-      simulated: false
+      geojson: { type: 'FeatureCollection', features: [{
+        ...feature,
+        properties: { ...feature.properties, mode: modo, time_min: minutos, area_km2: parseFloat(areaKm2), centro_lat: lat, centro_lng: lng, simulated: false, source: 'ors' }
+      }]},
+      areaKm2, radioMaxKm, timeMin: minutos, coords: feature.geometry.coordinates[0], simulated: false
     };
-  } catch (error) {
-    clearTimeout(timeoutId);
-    throw error;
-  }
+  } catch (error) { clearTimeout(timeoutId); throw error; }
 }
 
 // ═══════════════════════════════════════════════
-// OSRM público — Routing real sin API key
+// OSRM público — Boundary detection por dirección
 // ═══════════════════════════════════════════════
 async function calcularIsocronaOSRM(lng, lat, minutos) {
-  // 1. Calcular radios a probar según tiempo
-  const radiosKm = calcularRadiosParaTiempo(minutos);
-  
-  // 2. Generar puntos radiales en múltiples anillos
-  const todosLosPuntos = [];
-  const n = CONFIG.OSRM_POINTS_PER_RING;
-  for (const radioKm of radiosKm) {
-    for (let i = 0; i < n; i++) {
-      const ang = (i / n) * 2 * Math.PI;
+  const N_DIR = 72;           // 72 direcciones (cada 5°)
+  const BATCH_MAX = 89;       // OSRM soporta ~100 coords
+  const targetSec = minutos * 60;
+
+  // Radios adaptativos según tiempo (km)
+  const radioMaxEstimado = Math.max(minutos * 0.9, 5);
+  const radios = [2, 5, 8, 12, 18, 25, 35, 50, 65, 80].filter(r => r <= radioMaxEstimado);
+
+  // 1. Generar puntos radiales: radios × direcciones
+  const puntos = [];
+  for (const radioKm of radios) {
+    for (let d = 0; d < N_DIR; d++) {
+      const ang = (d / N_DIR) * 2 * Math.PI;
       const dlat = (radioKm * 1000 * Math.cos(ang)) / 111320;
       const dlng = (radioKm * 1000 * Math.sin(ang)) / (111320 * Math.cos(lat * Math.PI / 180));
-      todosLosPuntos.push({
-        lng: lng + dlng,
-        lat: lat + dlat,
-        angulo: ang,
-        radioKm
-      });
+      puntos.push({ lng: lng + dlng, lat: lat + dlat, dir: d, radioKm });
     }
   }
 
-  // 3. Llamadas OSRM table por batches (max 100 coords por llamada)
-  const MAX_COORDS = 90; // origen + 89 puntos
-  const puntosAlcanzables = [];
-  const batch = [];
-  batch.push({ lng, lat, angulo: 0, radioKm: 0, isOrigin: true });
+  // 2. Query OSRM table por batches
+  const resultados = [];
+  const origin = { lng, lat, dir: -1, radioKm: 0 };
   
-  for (const punto of todosLosPuntos) {
-    batch.push(punto);
-    if (batch.length >= MAX_COORDS) {
-      const resultados = await queryOSRMTable(batch);
-      for (const r of resultados) {
-        if (r.reachable) puntosAlcanzables.push(r);
+  for (let b = 0; b < puntos.length; b += BATCH_MAX) {
+    const batch = [origin, ...puntos.slice(b, b + BATCH_MAX)];
+    const durations = await queryOSRMTableBatch(batch);
+    for (let i = 1; i < batch.length; i++) {
+      if (durations[i] !== null && durations[i] !== undefined) {
+        resultados.push({
+          dir: batch[i].dir,
+          radioKm: batch[i].radioKm,
+          dur: durations[i]
+        });
       }
-      batch.length = 0;
-      batch.push({ lng, lat, angulo: 0, radioKm: 0, isOrigin: true });
-      // Stagger para no saturar
-      await new Promise(r => setTimeout(r, 100));
     }
+    // Stagger entre batches
+    if (b + BATCH_MAX < puntos.length) await sleep(80);
   }
-  // Último batch
-  if (batch.length > 1) {
-    const resultados = await queryOSRMTable(batch);
-    for (const r of resultados) {
-      if (r.reachable) puntosAlcanzables.push(r);
+
+  // 3. Para cada dirección, encontrar boundary por interpolación
+  const boundaryPoints = [];
+  for (let d = 0; d < N_DIR; d++) {
+    const ptsDir = resultados.filter(r => r.dir === d).sort((a, b) => a.radioKm - b.radioKm);
+    if (ptsDir.length === 0) continue;
+
+    let lastReach = null;
+    let firstOver = null;
+    for (const p of ptsDir) {
+      if (p.dur <= targetSec) {
+        lastReach = p;
+      } else if (firstOver === null) {
+        firstOver = p;
+        break;
+      }
     }
+
+    let rBoundary;
+    if (lastReach && firstOver && firstOver.dur > lastReach.dur) {
+      // Interpolación lineal entre último alcanzable y primero que excede
+      const frac = (targetSec - lastReach.dur) / (firstOver.dur - lastReach.dur);
+      rBoundary = lastReach.radioKm + frac * (firstOver.radioKm - lastReach.radioKm);
+    } else if (lastReach) {
+      rBoundary = lastReach.radioKm;
+    } else {
+      continue; // Esta dirección no tiene ningún punto alcanzable
+    }
+
+    const ang = (d / N_DIR) * 2 * Math.PI;
+    const dlat = (rBoundary * 1000 * Math.cos(ang)) / 111320;
+    const dlng = (rBoundary * 1000 * Math.sin(ang)) / (111320 * Math.cos(lat * Math.PI / 180));
+    boundaryPoints.push([lng + dlng, lat + dlat]);
   }
 
-  if (puntosAlcanzables.length < 3) {
-    throw new Error('OSRM: muy pocos puntos alcanzables');
+  if (boundaryPoints.length < 3) {
+    throw new Error('OSRM: muy pocos puntos de boundary alcanzables');
   }
 
-  // 4. Convex hull de los puntos alcanzables
-  const points = puntosAlcanzables.map(p => [p.lng, p.lat]);
-  const hull = convexHull(points);
-  
-  // Cerrar el polígono
-  hull.push(hull[0]);
+  // 4. Cerrar polígono
+  boundaryPoints.push(boundaryPoints[0]);
 
-  const areaKm2 = calcularAreaPoligonoKm2(hull).toFixed(2);
-  const radioMaxKm = calcularRadioMaximoFromCoords(hull, lng, lat);
+  const areaKm2 = calcularAreaPoligonoKm2(boundaryPoints).toFixed(2);
+  const radioMaxKm = calcularRadioMaximoFromCoords(boundaryPoints, lng, lat);
 
   const geojson = {
     type: 'FeatureCollection',
@@ -164,63 +161,33 @@ async function calcularIsocronaOSRM(lng, lat, minutos) {
         centro_lng: lng,
         simulated: false,
         source: 'osrm',
-        puntos_routing: puntosAlcanzables.length
+        puntos_boundary: boundaryPoints.length
       },
-      geometry: {
-        type: 'Polygon',
-        coordinates: [hull]
-      }
+      geometry: { type: 'Polygon', coordinates: [boundaryPoints] }
     }]
   };
 
-  return {
-    geojson,
-    areaKm2,
-    radioMaxKm,
-    timeMin: minutos,
-    coords: hull,
-    simulated: false
-  };
+  return { geojson, areaKm2, radioMaxKm, timeMin: minutos, coords: boundaryPoints, simulated: false };
 }
 
 // ═══════════════════════════════════════════════
 // OSRM Table Query
 // ═══════════════════════════════════════════════
-async function queryOSRMTable(batch) {
+async function queryOSRMTableBatch(batch) {
   const coords = batch.map(p => `${p.lng},${p.lat}`).join(';');
   const url = `${CONFIG.OSRM_BASE}/table/v1/driving/${coords}?annotations=duration`;
-  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CONFIG.OSRM_TIMEOUT);
-  
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': 'ISOTime/1.0' },
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    
     if (!response.ok) throw new Error(`OSRM HTTP ${response.status}`);
     const data = await response.json();
     if (data.code !== 'Ok') throw new Error(`OSRM: ${data.code}`);
-    
-    const durations = data.durations[0]; // desde el origen (índice 0)
-    const resultados = [];
-    
-    for (let i = 1; i < batch.length; i++) {
-      const duracion = durations[i];
-      if (duracion !== null && duracion !== undefined) {
-        resultados.push({
-          lng: batch[i].lng,
-          lat: batch[i].lat,
-          angulo: batch[i].angulo,
-          radioKm: batch[i].radioKm,
-          duracion: duracion,
-          reachable: true
-        });
-      }
-    }
-    return resultados;
+    return data.durations[0]; // tiempos desde origen (índice 0)
   } catch (error) {
     clearTimeout(timeoutId);
     throw error;
@@ -228,46 +195,8 @@ async function queryOSRMTable(batch) {
 }
 
 // ═══════════════════════════════════════════════
-// Convex Hull (Andrew's monotone chain)
-// ═══════════════════════════════════════════════
-function convexHull(points) {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  if (pts.length <= 1) return pts;
-  
-  const cross = (O, A, B) =>
-    (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0]);
-  
-  const lower = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
-      lower.pop();
-    }
-    lower.push(p);
-  }
-  
-  const upper = [];
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
-      upper.pop();
-    }
-    upper.push(p);
-  }
-  
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
-}
-
-// ═══════════════════════════════════════════════
 // Utilidades
 // ═══════════════════════════════════════════════
-function calcularRadiosParaTiempo(minutos) {
-  // Para coche: ~30-50 km/h medio → radio en km ≈ minutos * 0.7
-  const radioMaxEstimado = minutos * 0.8;
-  return CONFIG.OSRM_RADII.filter(r => r <= radioMaxEstimado);
-}
-
 function calcularRadioMaximoFromCoords(coords, centerLng, centerLat) {
   let maxDist = 0;
   coords.forEach(([clng, clat]) => {
@@ -279,7 +208,7 @@ function calcularRadioMaximoFromCoords(coords, centerLng, centerLat) {
   return (maxDist / 1000).toFixed(2);
 }
 
-export function calcularAreaPoligonoKm2(coords) {
+function calcularAreaPoligonoKm2(coords) {
   let area = 0;
   const n = coords.length;
   const avgLat = coords.reduce((s, c) => s + c[1], 0) / n;
@@ -290,3 +219,5 @@ export function calcularAreaPoligonoKm2(coords) {
   }
   return Math.abs(area / 2) * 111.32 * 111.32 * cosLat;
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
