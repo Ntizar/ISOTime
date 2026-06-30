@@ -182,7 +182,20 @@ function updateResultDisplay(result) {
   if (modeEl) modeEl.textContent = CONFIG.MODES[currentMode];
   if (exportSection) exportSection.style.display = 'block';
   const warning = document.getElementById('simulation-warning');
-  if (warning) warning.style.display = result.simulated ? 'flex' : 'none';
+  if (warning) {
+    if (result.simulated) {
+      warning.style.display = 'flex';
+      warning.querySelector('.warning-text').textContent = '⚠️ Modo simulación — Configure API key de ORS o use modo coche para datos reales OSRM';
+    } else if (result.geojson?.features?.[0]?.properties?.source === 'osrm') {
+      warning.style.display = 'flex';
+      warning.querySelector('.warning-text').textContent = '🛣️ Datos reales OSRM (routing público) — Para más precisión, configure API key de ORS';
+      warning.style.background = '#eff6ff';
+      warning.style.borderColor = '#93c5fd';
+      warning.style.color = '#1e40af';
+    } else {
+      warning.style.display = 'none';
+    }
+  }
 }
 
 function setupExportButtons() {
