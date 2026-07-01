@@ -234,120 +234,92 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
 }
 
 // ═══════════════════════════════════════════════
-// Boundary detection por grid + marching squares
+// Boundary detection por grid + boundary walking
 // ═══════════════════════════════════════════════
 function boundaryDetection(reachableNodes, centerLat, centerLng, _numDirs) {
-  const cosLat = Math.cos(centerLat * Math.PI / 180);
-  const GRID = 40; // 40x40 celdas
+  const GRID = 50;
 
-  // 1. Recoger coordenadas y calcular bounding box
-  const lats = new Float32Array(reachableNodes.length);
-  const lngs = new Float32Array(reachableNodes.length);
+  // 1. Bounding box
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-
   for (let i = 0; i < reachableNodes.length; i++) {
     const lat = graph.nodeCoords[reachableNodes[i] * 2];
     const lng = graph.nodeCoords[reachableNodes[i] * 2 + 1];
-    lats[i] = lat;
-    lngs[i] = lng;
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng;
-    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   }
-
-  // Margen 15%
   const latR = (maxLat - minLat) || 0.001;
   const lngR = (maxLng - minLng) || 0.001;
   minLat -= latR * 0.15; maxLat += latR * 0.15;
   minLng -= lngR * 0.15; maxLng += lngR * 0.15;
-
   const dLat = (maxLat - minLat) / GRID;
   const dLng = (maxLng - minLng) / GRID;
 
-  // 2. Marcar celdas ocupadas (1 = al menos 1 nodo alcanzable)
-  const grid = new Uint8Array((GRID + 1) * (GRID + 1));
-  const idx = (r, c) => r * (GRID + 1) + c;
-
+  // 2. Marcar celdas ocupadas (0 = vacío, 1 = alcanzable)
+  const g = new Uint8Array((GRID + 2) * (GRID + 2)); // +2 para borde virtual vacío
+  const idx = (r, c) => (r + 1) * (GRID + 2) + (c + 1);
   for (let i = 0; i < reachableNodes.length; i++) {
-    const r = Math.min(GRID, Math.max(0, Math.floor((lats[i] - minLat) / dLat)));
-    const c = Math.min(GRID, Math.max(0, Math.floor((lngs[i] - minLng) / dLng)));
-    grid[idx(r, c)] = 1;
+    const lat = graph.nodeCoords[reachableNodes[i] * 2];
+    const lng = graph.nodeCoords[reachableNodes[i] * 2 + 1];
+    const r = Math.min(GRID - 1, Math.max(0, Math.floor((lat - minLat) / dLat)));
+    const c = Math.min(GRID - 1, Math.max(0, Math.floor((lng - minLng) / dLng)));
+    g[idx(r, c)] = 1;
   }
 
-  // 3. Marching squares: extraer contorno como segmentos
-  const segments = [];
-  const lerp = (v0, v1, t) => v0 + (v1 - v0) * t;
-
-  for (let r = 0; r < GRID; r++) {
-    for (let c = 0; c < GRID; c++) {
-      // 4 esquinas de la celda: TL, TR, BR, BL
-      const tl = grid[idx(r, c)];
-      const tr = grid[idx(r, c + 1)];
-      const br = grid[idx(r + 1, c + 1)];
-      const bl = grid[idx(r + 1, c)];
-      const code = (tl << 3) | (tr << 2) | (br << 1) | bl;
-
-      if (code === 0 || code === 15) continue;
-
-      // Puntos medios de los lados
-      const top    = [minLng + (c + 0.5) * dLng, minLat + r * dLat];
-      const right  = [minLng + (c + 1) * dLng, minLat + (r + 0.5) * dLat];
-      const bottom = [minLng + (c + 0.5) * dLng, minLat + (r + 1) * dLat];
-      const left   = [minLng + c * dLng, minLat + (r + 0.5) * dLat];
-
-      // Lookup table: qué lados conectar (cada caso = 1-2 segmentos)
-      const addSeg = (a, b) => segments.push([a, b]);
-      switch (code) {
-        case 1:  addSeg(left, bottom); break;
-        case 2:  addSeg(bottom, right); break;
-        case 3:  addSeg(left, right); break;
-        case 4:  addSeg(right, top); break;
-        case 5:  addSeg(left, top); addSeg(bottom, right); break; // saddle
-        case 6:  addSeg(bottom, top); break;
-        case 7:  addSeg(left, top); break;
-        case 8:  addSeg(top, left); break;
-        case 9:  addSeg(top, bottom); break;
-        case 10: addSeg(top, right); addSeg(left, bottom); break; // saddle
-        case 11: addSeg(top, right); break;
-        case 12: addSeg(right, left); break;
-        case 13: addSeg(bottom, right); break;
-        case 14: addSeg(left, bottom); break;
+  // 3. Encontrar primera celda frontera (1 con al menos un vecino 0)
+  const dr4 = [0, 0, 1, -1];
+  const dc4 = [1, -1, 0, 0];
+  let startR = -1, startC = -1;
+  for (let r = 0; r < GRID && startR < 0; r++) {
+    for (let c = 0; c < GRID && startR < 0; c++) {
+      if (!g[idx(r, c)]) continue;
+      for (let d = 0; d < 4; d++) {
+        if (!g[idx(r + dr4[d], c + dc4[d])]) { startR = r; startC = c; break; }
       }
     }
   }
+  if (startR < 0) return null;
 
-  if (segments.length < 3) return null;
+  // 4. Boundary walking: Moore neighborhood tracing
+  // Dir 0=right, 1=down, 2=left, 3=up
+  const right = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
+  let r = startR, c = startC;
+  let dir = 4; // start looking right-ish
+  const boundary = [];
+  const visited = new Set();
+  let steps = 0;
 
-  // 4. Cadena de segmentos → polígono ordenado
-  // Construir mapa de punto → siguiente punto
-  const ptKey = (p) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`;
-  const nextMap = new Map();
-  for (const [a, b] of segments) {
-    nextMap.set(ptKey(a), b);
-  }
+  do {
+    // Punto medio de la celda → coordenada geográfica
+    const lat = minLat + (r + 0.5) * dLat;
+    const lng = minLng + (c + 0.5) * dLng;
+    const key = `${r},${c}`;
+    if (!visited.has(key)) {
+      boundary.push([lng, lat]);
+      visited.add(key);
+    }
 
-  // Empezar desde el primer segmento y seguir la cadena
-  const used = new Set();
-  const coords = [];
-  let current = segments[0][0];
-  const startKey = ptKey(current);
-  let safety = segments.length + 10;
+    // Buscar siguiente celda frontera
+    let found = false;
+    for (let i = 0; i < 8; i++) {
+      const nd = (dir + i) % 8;
+      const nr = r + right[nd][0];
+      const nc = c + right[nd][1];
+      if (g[idx(nr, nc)]) {
+        r = nr; c = nc;
+        dir = (nd + 5) % 8; // girar a la derecha del movimiento
+        found = true;
+        break;
+      }
+    }
+    if (!found) break;
+    steps++;
+  } while ((r !== startR || c !== startC) && steps < GRID * GRID);
 
-  while (safety-- > 0) {
-    coords.push(current);
-    const key = ptKey(current);
-    const next = nextMap.get(key);
-    if (!next) break;
-    if (key === startKey && coords.length > 3) break;
-    current = next;
-  }
-
-  if (coords.length < 3) return null;
+  if (boundary.length < 5) return null;
 
   // Cerrar polígono
-  coords.push(coords[0]);
-  return coords;
+  boundary.push(boundary[0]);
+  return boundary;
 }
 
 // ═══════════════════════════════════════════════
