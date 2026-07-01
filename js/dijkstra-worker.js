@@ -170,7 +170,14 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
   const heap = new MinHeap();
   heap.push(originNode, 0);
 
+  // Límite de distancia física: cutoffSec * speed / 3.6 → metros
+  const speedMs = modeSpeed > 0 ? modeSpeed / 3.6 : Math.abs(modeSpeed) / 3.6;
+  const maxPhysicalDist = cutoffSec * speedMs * 1.3; // 30% margen para rutas no rectas
+
   const reachable = [];
+  const originLat = graph.nodeCoords[originNode * 2];
+  const originLng = graph.nodeCoords[originNode * 2 + 1];
+  const cosLat = Math.cos(originLat * Math.PI / 180);
 
   while (heap.size > 0) {
     const { node, dist: d } = heap.pop();
@@ -178,6 +185,15 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
     visited[node] = 1;
 
     if (d > cutoffSec) break;
+
+    // Filtro de distancia física: si está demasiado lejos, saltar
+    const lat = graph.nodeCoords[node * 2];
+    const lng = graph.nodeCoords[node * 2 + 1];
+    const dLat = (lat - originLat) * 111320;
+    const dLng = (lng - originLng) * 111320 * cosLat;
+    const physicalDist = Math.sqrt(dLat * dLat + dLng * dLng);
+    if (physicalDist > maxPhysicalDist) continue;
+
     reachable.push(node);
 
     // Iterar aristas salientes (CSR)
