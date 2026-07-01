@@ -234,49 +234,98 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
 }
 
 // ═══════════════════════════════════════════════
-// Boundary detection angular — polígono que sigue la red viaria
+// Boundary detection por grid — polígonos orgánicos
 // ═══════════════════════════════════════════════
-function boundaryDetection(reachableNodes, centerLat, centerLng, numDirs = 72) {
+function boundaryDetection(reachableNodes, centerLat, centerLng, _numDirs) {
   const cosLat = Math.cos(centerLat * Math.PI / 180);
-  const dirs = new Array(numDirs).fill(null).map(() => ({
-    maxDist: 0, lat: centerLat, lng: centerLng
-  }));
+  const GRID_SIZE = 50; // 50x50 celdas
 
-  for (const nodeIdx of reachableNodes) {
-    const lat = graph.nodeCoords[nodeIdx * 2];
-    const lng = graph.nodeCoords[nodeIdx * 2 + 1];
-    const dLat = (lat - centerLat) * 111320;
-    const dLng = (lng - centerLng) * 111320 * cosLat;
-    const dist = Math.sqrt(dLat * dLat + dLng * dLng);
-    const angle = Math.atan2(dLng, dLat); // -PI a PI
-    let dirIdx = Math.floor(((angle + Math.PI) / (2 * Math.PI)) * numDirs);
-    dirIdx = dirIdx % numDirs;
+  // 1. Recoger coordenadas y calcular bounding box
+  const lats = new Float32Array(reachableNodes.length);
+  const lngs = new Float32Array(reachableNodes.length);
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
 
-    if (dist > dirs[dirIdx].maxDist) {
-      dirs[dirIdx] = { maxDist: dist, lat, lng };
+  for (let i = 0; i < reachableNodes.length; i++) {
+    const lat = graph.nodeCoords[reachableNodes[i] * 2];
+    const lng = graph.nodeCoords[reachableNodes[i] * 2 + 1];
+    lats[i] = lat;
+    lngs[i] = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+
+  // Añadir margen (10%)
+  const latRange = maxLat - minLat || 0.001;
+  const lngRange = maxLng - minLng || 0.001;
+  minLat -= latRange * 0.1;
+  maxLat += latRange * 0.1;
+  minLng -= lngRange * 0.1;
+  maxLng += lngRange * 0.1;
+
+  const cellLat = (maxLat - minLat) / GRID_SIZE;
+  const cellLng = (maxLng - minLng) / GRID_SIZE;
+
+  // 2. Marcar celdas ocupadas
+  const grid = new Uint8Array(GRID_SIZE * GRID_SIZE);
+  for (let i = 0; i < reachableNodes.length; i++) {
+    const row = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor((lats[i] - minLat) / cellLat)));
+    const col = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor((lngs[i] - minLng) / cellLng)));
+    grid[row * GRID_SIZE + col] = 1;
+  }
+
+  // 3. Encontrar celdas frontera (ocupadas con al menos 1 vecina vacía)
+  const dirs4 = [[0,1],[0,-1],[1,0],[-1,0]];
+  const boundaryCells = [];
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (!grid[r * GRID_SIZE + c]) continue;
+      let isBoundary = false;
+      for (const [dr, dc] of dirs4) {
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE || !grid[nr * GRID_SIZE + nc]) {
+          isBoundary = true;
+          break;
+        }
+      }
+      if (isBoundary) boundaryCells.push({ r, c });
     }
   }
 
-  // Filtrar direcciones sin nodos y construir polígono
-  const points = dirs.filter(d => d.maxDist > 0);
-  if (points.length < 3) return null;
+  if (boundaryCells.length < 3) return null;
 
-  // Ordenar por ángulo para que el polígono no se cruce
-  points.sort((a, b) => {
-    const angA = Math.atan2(
-      (a.lng - centerLng) * 111320 * cosLat,
-      (a.lat - centerLat) * 111320
-    );
-    const angB = Math.atan2(
-      (b.lng - centerLng) * 111320 * cosLat,
-      (b.lat - centerLat) * 111320
-    );
+  // 4. Ordenar celdas frontera en ciclo (boundary tracing)
+  // Algoritmo: ordenar por ángulo desde centro del grid → polígono convexo suave
+  const centerR = GRID_SIZE / 2;
+  const centerC = GRID_SIZE / 2;
+  boundaryCells.sort((a, b) => {
+    const angA = Math.atan2(a.r - centerR, a.c - centerC);
+    const angB = Math.atan2(b.r - centerR, b.c - centerC);
     return angA - angB;
   });
 
-  const coords = points.map(p => [p.lng, p.lat]);
-  coords.push(coords[0]); // cerrar polígono
-  return coords;
+  // 5. Convertir celdas a coordenadas geográficas (centro de celda)
+  const coords = boundaryCells.map(cell => {
+    const lat = minLat + (cell.r + 0.5) * cellLat;
+    const lng = minLng + (cell.c + 0.5) * cellLng;
+    return [lng, lat];
+  });
+
+  // 6. Suavizar: eliminar puntos muy cercanos (< 10m)
+  const smoothed = [coords[0]];
+  for (let i = 1; i < coords.length; i++) {
+    const prev = smoothed[smoothed.length - 1];
+    const dLat = (coords[i][1] - prev[1]) * 111320;
+    const dLng = (coords[i][0] - prev[0]) * 111320 * cosLat;
+    if (Math.sqrt(dLat * dLat + dLng * dLng) > 10) {
+      smoothed.push(coords[i]);
+    }
+  }
+
+  // Cerrar polígono
+  smoothed.push(smoothed[0]);
+  return smoothed;
 }
 
 // ═══════════════════════════════════════════════
