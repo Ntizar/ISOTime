@@ -296,10 +296,11 @@ self.onmessage = async function(e) {
   if (cmd === 'load') {
     try {
       const { city } = e.data;
-      // Resolve path relative to page root, not worker script
-      // Worker is at js/dijkstra-worker.js, so ../ goes to page root
+      // Resolve graph path relative to page root
+      // Worker self.location.href gives us the worker script URL
       const baseUrl = self.location.href.replace(/js\/[^/]*$/, '');
       const url = `${baseUrl}data/graphs/${city}.bin`;
+      self.postMessage({ cmd: 'debug', message: `Fetching graph from: ${url} (self.location=${self.location.href})` });
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Grafo no encontrado: ${city} (HTTP ${response.status})`);
       const buffer = await response.arrayBuffer();
