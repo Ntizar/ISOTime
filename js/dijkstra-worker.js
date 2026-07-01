@@ -186,6 +186,8 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
   const originLng = graph.nodeCoords[originNode * 2 + 1];
   const cosLat = Math.cos(originLat * Math.PI / 180);
 
+  self.postMessage({ cmd: 'debug', message: `origin=${originLat},${originLng} modeSpeed=${modeSpeed} cutoff=${cutoffSec}s maxDist=${maxPhysicalDist.toFixed(0)}m originNode=${originNode} edges=${graph.nodeOffsets[originNode+1]-graph.nodeOffsets[originNode]}` });
+
   while (heap.size > 0) {
     const { node, dist: d } = heap.pop();
     if (visited[node]) continue;
