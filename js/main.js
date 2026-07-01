@@ -3,6 +3,7 @@ import { initMap, getMap, setCenter, addPoint, renderIsochrones, clearLayers, fi
 import { calcularIsocrona } from './isochrones.js';
 import { buscarDireccion, debounce } from './geocoding.js';
 import { exportGeoJSON, exportShapefile } from './export.js';
+import { hasLocalGraph, findNearestCity } from './graph-loader.js';
 
 let currentMode = CONFIG.DEFAULT_MODE;
 let currentTime = CONFIG.DEFAULT_TIME;
@@ -115,6 +116,7 @@ function setupSearch() {
             const match = matches[idx];
             setCenter(match.lat, match.lng, 14);
             addPoint(match.lat, match.lng);
+            updateGraphIndicator(match.lat, match.lng);
             results.style.display = 'none';
             input.value = match.displayName;
           });
@@ -183,10 +185,20 @@ function updateResultDisplay(result) {
   if (exportSection) exportSection.style.display = 'block';
   const warning = document.getElementById('simulation-warning');
   if (warning) {
+    const source = result.geojson?.features?.[0]?.properties?.source;
     if (result.simulated) {
       warning.style.display = 'flex';
       warning.querySelector('.warning-text').textContent = '⚠️ Modo simulación — Configure API key de ORS o use modo coche para datos reales OSRM';
-    } else if (result.geojson?.features?.[0]?.properties?.source === 'osrm') {
+      warning.style.background = '#fef3c7';
+      warning.style.borderColor = '#fcd34d';
+      warning.style.color = '#92400e';
+    } else if (source === 'dijkstra-local') {
+      warning.style.display = 'flex';
+      warning.querySelector('.warning-text').textContent = `🧠 Motor Dijkstra local — ${result.city || ''} (${result.geojson?.features?.[0]?.properties?.node_count || 0} nodos) — Sin API externa`;
+      warning.style.background = '#ecfdf5';
+      warning.style.borderColor = '#6ee7b7';
+      warning.style.color = '#065f46';
+    } else if (source === 'osrm') {
       warning.style.display = 'flex';
       warning.querySelector('.warning-text').textContent = '🛣️ Datos reales OSRM (routing público) — Para más precisión, configure API key de ORS';
       warning.style.background = '#eff6ff';
@@ -220,7 +232,21 @@ function setupMapClick() {
     const { lat, lng } = e.latlng;
     clearLayers();
     addPoint(lat, lng);
+    updateGraphIndicator(lat, lng);
   });
+}
+
+function updateGraphIndicator(lat, lng) {
+  const city = findNearestCity(lat, lng);
+  const indicator = document.getElementById('graph-indicator');
+  if (!indicator) return;
+  if (city) {
+    indicator.style.display = 'flex';
+    indicator.textContent = `🧠 Grafo local disponible: ${city.name}`;
+    indicator.className = 'graph-indicator graph-available';
+  } else {
+    indicator.style.display = 'none';
+  }
 }
 
 function setupSettingsButton() {

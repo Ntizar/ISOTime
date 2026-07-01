@@ -1,18 +1,31 @@
 import { CONFIG } from './config.js';
 import { calcularIsocronaSim } from './map.js';
+import { calcularIsocronaLocal, hasLocalGraph } from './graph-loader.js';
 
 // ═══════════════════════════════════════════════
-// MAIN: Calcular isócrona (ORS → OSRM → Sim)
+// MAIN: Calcular isócrona (ORS → Dijkstra local → OSRM → Sim)
 // ═══════════════════════════════════════════════
 export async function calcularIsocrona(lng, lat, modo, minutos) {
+  // 1. ORS API (con key del usuario) — máxima precisión
   const apiKey = localStorage.getItem(CONFIG.STORAGE_KEY);
   if (apiKey) {
     try {
       return await calcularIsocronaORS(lng, lat, modo, minutos, apiKey);
     } catch (e) {
-      console.warn('ORS failed, trying OSRM:', e.message);
+      console.warn('ORS failed, trying local Dijkstra:', e.message);
     }
   }
+
+  // 2. Dijkstra local (grafo pre-calculado) — sin API, ciudades españolas
+  if (hasLocalGraph(lat, lng)) {
+    try {
+      return await calcularIsocronaLocal(lat, lng, modo, minutos);
+    } catch (e) {
+      console.warn('Local Dijkstra failed, trying OSRM:', e.message);
+    }
+  }
+
+  // 3. OSRM público (sin key) — solo coche, boundary detection
   if (modo === 'car') {
     try {
       return await calcularIsocronaOSRM(lng, lat, minutos);
@@ -20,6 +33,8 @@ export async function calcularIsocrona(lng, lat, modo, minutos) {
       console.warn('OSRM failed, using simulation:', e.message);
     }
   }
+
+  // 4. Simulación — fallback final
   return calcularIsocronaSim(lng, lat, modo, minutos);
 }
 
