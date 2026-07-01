@@ -186,8 +186,6 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
   const originLng = graph.nodeCoords[originNode * 2 + 1];
   const cosLat = Math.cos(originLat * Math.PI / 180);
 
-  self.postMessage({ cmd: 'debug', message: `origin=${originLat},${originLng} modeSpeed=${modeSpeed} cutoff=${cutoffSec}s maxDist=${maxPhysicalDist.toFixed(0)}m originNode=${originNode} edges=${graph.nodeOffsets[originNode+1]-graph.nodeOffsets[originNode]}` });
-
   while (heap.size > 0) {
     const { node, dist: d } = heap.pop();
     if (visited[node]) continue;
@@ -353,16 +351,11 @@ self.onmessage = async function(e) {
       // 1. Encontrar nodo más cercano al punto del usuario
       const originNode = findNearestNode(lat, lng);
 
-      const originLat2 = graph.nodeCoords[originNode * 2];
-      const originLng2 = graph.nodeCoords[originNode * 2 + 1];
-
       // 2. Dijkstra
       const reachable = dijkstra(originNode, cutoffSec, modeSpeed);
 
-      self.postMessage({ cmd: 'debug', message: `isochrone: origin=${originLat2},${originLng2} node=${originNode} reachable=${reachable.length} cutoff=${cutoffSec} speed=${modeSpeed}` });
-
       if (reachable.length < 3) {
-        throw new Error(`Muy pocos nodos alcanzables (${reachable.length}). Origin: ${originLat2?.toFixed(6)},${originLng2?.toFixed(6)} node=${originNode}`);
+        throw new Error('Muy pocos nodos alcanzables');
       }
 
       // 3. Boundary detection → polígono
