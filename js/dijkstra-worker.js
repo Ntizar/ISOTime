@@ -234,11 +234,11 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
 }
 
 // ═══════════════════════════════════════════════
-// Boundary detection por grid — polígonos orgánicos
+// Boundary detection por grid + marching squares
 // ═══════════════════════════════════════════════
 function boundaryDetection(reachableNodes, centerLat, centerLng, _numDirs) {
   const cosLat = Math.cos(centerLat * Math.PI / 180);
-  const GRID_SIZE = 50; // 50x50 celdas
+  const GRID = 40; // 40x40 celdas
 
   // 1. Recoger coordenadas y calcular bounding box
   const lats = new Float32Array(reachableNodes.length);
@@ -256,76 +256,98 @@ function boundaryDetection(reachableNodes, centerLat, centerLng, _numDirs) {
     if (lng > maxLng) maxLng = lng;
   }
 
-  // Añadir margen (10%)
-  const latRange = maxLat - minLat || 0.001;
-  const lngRange = maxLng - minLng || 0.001;
-  minLat -= latRange * 0.1;
-  maxLat += latRange * 0.1;
-  minLng -= lngRange * 0.1;
-  maxLng += lngRange * 0.1;
+  // Margen 15%
+  const latR = (maxLat - minLat) || 0.001;
+  const lngR = (maxLng - minLng) || 0.001;
+  minLat -= latR * 0.15; maxLat += latR * 0.15;
+  minLng -= lngR * 0.15; maxLng += lngR * 0.15;
 
-  const cellLat = (maxLat - minLat) / GRID_SIZE;
-  const cellLng = (maxLng - minLng) / GRID_SIZE;
+  const dLat = (maxLat - minLat) / GRID;
+  const dLng = (maxLng - minLng) / GRID;
 
-  // 2. Marcar celdas ocupadas
-  const grid = new Uint8Array(GRID_SIZE * GRID_SIZE);
+  // 2. Marcar celdas ocupadas (1 = al menos 1 nodo alcanzable)
+  const grid = new Uint8Array((GRID + 1) * (GRID + 1));
+  const idx = (r, c) => r * (GRID + 1) + c;
+
   for (let i = 0; i < reachableNodes.length; i++) {
-    const row = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor((lats[i] - minLat) / cellLat)));
-    const col = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor((lngs[i] - minLng) / cellLng)));
-    grid[row * GRID_SIZE + col] = 1;
+    const r = Math.min(GRID, Math.max(0, Math.floor((lats[i] - minLat) / dLat)));
+    const c = Math.min(GRID, Math.max(0, Math.floor((lngs[i] - minLng) / dLng)));
+    grid[idx(r, c)] = 1;
   }
 
-  // 3. Encontrar celdas frontera (ocupadas con al menos 1 vecina vacía)
-  const dirs4 = [[0,1],[0,-1],[1,0],[-1,0]];
-  const boundaryCells = [];
-  for (let r = 0; r < GRID_SIZE; r++) {
-    for (let c = 0; c < GRID_SIZE; c++) {
-      if (!grid[r * GRID_SIZE + c]) continue;
-      let isBoundary = false;
-      for (const [dr, dc] of dirs4) {
-        const nr = r + dr, nc = c + dc;
-        if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE || !grid[nr * GRID_SIZE + nc]) {
-          isBoundary = true;
-          break;
-        }
+  // 3. Marching squares: extraer contorno como segmentos
+  const segments = [];
+  const lerp = (v0, v1, t) => v0 + (v1 - v0) * t;
+
+  for (let r = 0; r < GRID; r++) {
+    for (let c = 0; c < GRID; c++) {
+      // 4 esquinas de la celda: TL, TR, BR, BL
+      const tl = grid[idx(r, c)];
+      const tr = grid[idx(r, c + 1)];
+      const br = grid[idx(r + 1, c + 1)];
+      const bl = grid[idx(r + 1, c)];
+      const code = (tl << 3) | (tr << 2) | (br << 1) | bl;
+
+      if (code === 0 || code === 15) continue;
+
+      // Puntos medios de los lados
+      const top    = [minLng + (c + 0.5) * dLng, minLat + r * dLat];
+      const right  = [minLng + (c + 1) * dLng, minLat + (r + 0.5) * dLat];
+      const bottom = [minLng + (c + 0.5) * dLng, minLat + (r + 1) * dLat];
+      const left   = [minLng + c * dLng, minLat + (r + 0.5) * dLat];
+
+      // Lookup table: qué lados conectar (cada caso = 1-2 segmentos)
+      const addSeg = (a, b) => segments.push([a, b]);
+      switch (code) {
+        case 1:  addSeg(left, bottom); break;
+        case 2:  addSeg(bottom, right); break;
+        case 3:  addSeg(left, right); break;
+        case 4:  addSeg(right, top); break;
+        case 5:  addSeg(left, top); addSeg(bottom, right); break; // saddle
+        case 6:  addSeg(bottom, top); break;
+        case 7:  addSeg(left, top); break;
+        case 8:  addSeg(top, left); break;
+        case 9:  addSeg(top, bottom); break;
+        case 10: addSeg(top, right); addSeg(left, bottom); break; // saddle
+        case 11: addSeg(top, right); break;
+        case 12: addSeg(right, left); break;
+        case 13: addSeg(bottom, right); break;
+        case 14: addSeg(left, bottom); break;
       }
-      if (isBoundary) boundaryCells.push({ r, c });
     }
   }
 
-  if (boundaryCells.length < 3) return null;
+  if (segments.length < 3) return null;
 
-  // 4. Ordenar celdas frontera en ciclo (boundary tracing)
-  // Algoritmo: ordenar por ángulo desde centro del grid → polígono convexo suave
-  const centerR = GRID_SIZE / 2;
-  const centerC = GRID_SIZE / 2;
-  boundaryCells.sort((a, b) => {
-    const angA = Math.atan2(a.r - centerR, a.c - centerC);
-    const angB = Math.atan2(b.r - centerR, b.c - centerC);
-    return angA - angB;
-  });
-
-  // 5. Convertir celdas a coordenadas geográficas (centro de celda)
-  const coords = boundaryCells.map(cell => {
-    const lat = minLat + (cell.r + 0.5) * cellLat;
-    const lng = minLng + (cell.c + 0.5) * cellLng;
-    return [lng, lat];
-  });
-
-  // 6. Suavizar: eliminar puntos muy cercanos (< 10m)
-  const smoothed = [coords[0]];
-  for (let i = 1; i < coords.length; i++) {
-    const prev = smoothed[smoothed.length - 1];
-    const dLat = (coords[i][1] - prev[1]) * 111320;
-    const dLng = (coords[i][0] - prev[0]) * 111320 * cosLat;
-    if (Math.sqrt(dLat * dLat + dLng * dLng) > 10) {
-      smoothed.push(coords[i]);
-    }
+  // 4. Cadena de segmentos → polígono ordenado
+  // Construir mapa de punto → siguiente punto
+  const ptKey = (p) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`;
+  const nextMap = new Map();
+  for (const [a, b] of segments) {
+    nextMap.set(ptKey(a), b);
   }
+
+  // Empezar desde el primer segmento y seguir la cadena
+  const used = new Set();
+  const coords = [];
+  let current = segments[0][0];
+  const startKey = ptKey(current);
+  let safety = segments.length + 10;
+
+  while (safety-- > 0) {
+    coords.push(current);
+    const key = ptKey(current);
+    const next = nextMap.get(key);
+    if (!next) break;
+    if (key === startKey && coords.length > 3) break;
+    current = next;
+  }
+
+  if (coords.length < 3) return null;
 
   // Cerrar polígono
-  smoothed.push(smoothed[0]);
-  return smoothed;
+  coords.push(coords[0]);
+  return coords;
 }
 
 // ═══════════════════════════════════════════════
