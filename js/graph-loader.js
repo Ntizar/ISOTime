@@ -83,37 +83,37 @@ export function loadCityGraph(cityName) {
 // ═══════════════════════════════════════════════
 // Calcular isocrona local
 // ═══════════════════════════════════════════════
-export function calcularIsocronaLocal(lat, lng, modo, minutos) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // 1. Detectar ciudad
-      const city = findNearestCity(lat, lng);
-      if (!city) {
-        reject(new Error('No hay grafo disponible para esta ubicación'));
-        return;
-      }
+export async function calcularIsocronaLocal(lat, lng, modo, minutos) {
+  try {
+    // 1. Detectar ciudad
+    const city = findNearestCity(lat, lng);
+    if (!city) {
+      throw new Error('No hay grafo disponible para esta ubicación');
+    }
 
-      // 2. Cargar grafo si no está cargado
-      await loadCityGraph(city.name);
+    // 2. Cargar grafo si no está cargado
+    await loadCityGraph(city.name);
 
-      // 3. Calcular velocidades según modo
-      // modeSpeed > 0: coche (min entre velocidad vía y límite modo)
-      // modeSpeed < 0: velocidad fija (andando)
-      let modeSpeed;
-      if (modo === 'car') {
-        modeSpeed = 120; // km/h — las autovías limitan a esto, las calles a menos
-      } else if (modo === 'walking') {
-        modeSpeed = -5; // 5 km/h fijo (negativo = velocidad fija)
-      } else if (modo === 'bike') {
-        modeSpeed = -15; // 15 km/h fijo
-      } else {
-        modeSpeed = -5; // default: andando
-      }
+    // 3. Calcular velocidades según modo
+    // modeSpeed > 0: coche (min entre velocidad vía y límite modo)
+    // modeSpeed < 0: velocidad fija (andando)
+    let modeSpeed;
+    if (modo === 'car') {
+      modeSpeed = 120; // km/h — las autovías limitan a esto, las calles a menos
+    } else if (modo === 'walking') {
+      modeSpeed = -5; // 5 km/h fijo (negativo = velocidad fija)
+    } else if (modo === 'bike') {
+      modeSpeed = -15; // 15 km/h fijo
+    } else {
+      modeSpeed = -5; // default: andando
+    }
 
-      const cutoffSec = minutos * 60;
-      const w = getWorker();
+    const cutoffSec = minutos * 60;
+    const w = getWorker();
 
+    return await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
+        w.removeEventListener('message', handler);
         reject(new Error('Timeout en cálculo Dijkstra'));
       }, 15000);
 
@@ -168,11 +168,11 @@ export function calcularIsocronaLocal(lat, lng, modo, minutos) {
 
       w.addEventListener('message', handler);
       w.postMessage({ cmd: 'isochrone', lat, lng, cutoffSec, modeSpeed });
+    });
 
-    } catch (err) {
-      reject(err);
-    }
-  });
+  } catch (err) {
+    throw err;
+  }
 }
 
 // ═══════════════════════════════════════════════

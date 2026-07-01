@@ -173,7 +173,7 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
   const reachable = [];
 
   while (heap.size > 0) {
-    const { node, d } = heap.pop();
+    const { node, dist: d } = heap.pop();
     if (visited[node]) continue;
     visited[node] = 1;
 

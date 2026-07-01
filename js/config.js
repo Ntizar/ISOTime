@@ -14,8 +14,6 @@ export const CONFIG = {
   PRESETS: [5, 10, 15, 30, 45, 60, 90],
   ORS_TIMEOUT: 15000,
   OSRM_BASE: 'https://router.project-osrm.org',
-  OSRM_RADII: [3, 6, 10, 15, 20, 30, 45, 60, 80],
-  OSRM_POINTS_PER_RING: 36,
   OSRM_TIMEOUT: 12000,
   TILES_URL: 'https://www.ign.es/wmts/ign-base?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=IGNBaseTodo&STYLE=default&TILEMATRIXSET=EPSG:3857&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}&FORMAT=image/jpeg',
   TILES_ATTRIBUTION: '&copy; Instituto Geográfico Nacional',
