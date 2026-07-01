@@ -234,92 +234,65 @@ function dijkstra(originNode, cutoffSec, modeSpeed) {
 }
 
 // ═══════════════════════════════════════════════
-// Boundary detection por grid + boundary walking
+// Boundary detection: convex hull de nodos frontera
 // ═══════════════════════════════════════════════
 function boundaryDetection(reachableNodes, centerLat, centerLng, _numDirs) {
-  const GRID = 50;
+  if (reachableNodes.length < 5) return null;
 
-  // 1. Bounding box
-  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-  for (let i = 0; i < reachableNodes.length; i++) {
-    const lat = graph.nodeCoords[reachableNodes[i] * 2];
-    const lng = graph.nodeCoords[reachableNodes[i] * 2 + 1];
-    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
-  }
-  const latR = (maxLat - minLat) || 0.001;
-  const lngR = (maxLng - minLng) || 0.001;
-  minLat -= latR * 0.15; maxLat += latR * 0.15;
-  minLng -= lngR * 0.15; maxLng += lngR * 0.15;
-  const dLat = (maxLat - minLat) / GRID;
-  const dLng = (maxLng - minLng) / GRID;
+  const cosLat = Math.cos(centerLat * Math.PI / 180);
 
-  // 2. Marcar celdas ocupadas (0 = vacío, 1 = alcanzable)
-  const g = new Uint8Array((GRID + 2) * (GRID + 2)); // +2 para borde virtual vacío
-  const idx = (r, c) => (r + 1) * (GRID + 2) + (c + 1);
-  for (let i = 0; i < reachableNodes.length; i++) {
-    const lat = graph.nodeCoords[reachableNodes[i] * 2];
-    const lng = graph.nodeCoords[reachableNodes[i] * 2 + 1];
-    const r = Math.min(GRID - 1, Math.max(0, Math.floor((lat - minLat) / dLat)));
-    const c = Math.min(GRID - 1, Math.max(0, Math.floor((lng - minLng) / dLng)));
-    g[idx(r, c)] = 1;
+  // 1. Recoger coordenadas de nodos alcanzables
+  const points = reachableNodes.map(i => ({
+    lat: graph.nodeCoords[i * 2],
+    lng: graph.nodeCoords[i * 2 + 1]
+  }));
+
+  // 2. Convex hull (Andrew's monotone chain)
+  // Primero ordenar por lng, luego lat
+  points.sort((a, b) => a.lng !== b.lng ? a.lng - b.lng : a.lat - b.lat);
+
+  const cross = (O, A, B) =>
+    (A.lng - O.lng) * (B.lat - O.lat) - (A.lat - O.lat) * (B.lng - O.lng);
+
+  const lower = [];
+  for (const p of points) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
   }
 
-  // 3. Encontrar primera celda frontera (1 con al menos un vecino 0)
-  const dr4 = [0, 0, 1, -1];
-  const dc4 = [1, -1, 0, 0];
-  let startR = -1, startC = -1;
-  for (let r = 0; r < GRID && startR < 0; r++) {
-    for (let c = 0; c < GRID && startR < 0; c++) {
-      if (!g[idx(r, c)]) continue;
-      for (let d = 0; d < 4; d++) {
-        if (!g[idx(r + dr4[d], c + dc4[d])]) { startR = r; startC = c; break; }
-      }
+  const upper = [];
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  // Quitar último punto de cada mitad (duplicado)
+  lower.pop();
+  upper.pop();
+
+  const hull = lower.concat(upper);
+  if (hull.length < 3) return null;
+
+  // 3. Simplificar hull (Douglas-Peucker simplificado: eliminar puntos muy cercanos)
+  const simplified = [hull[0]];
+  for (let i = 1; i < hull.length; i++) {
+    const prev = simplified[simplified.length - 1];
+    const dLat = (hull[i].lat - prev.lat) * 111320;
+    const dLng = (hull[i].lng - prev.lng) * 111320 * cosLat;
+    if (Math.sqrt(dLat * dLat + dLng * dLng) > 50) { // > 50m
+      simplified.push(hull[i]);
     }
   }
-  if (startR < 0) return null;
 
-  // 4. Boundary walking: Moore neighborhood tracing
-  // Dir 0=right, 1=down, 2=left, 3=up
-  const right = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
-  let r = startR, c = startC;
-  let dir = 4; // start looking right-ish
-  const boundary = [];
-  const visited = new Set();
-  let steps = 0;
-
-  do {
-    // Punto medio de la celda → coordenada geográfica
-    const lat = minLat + (r + 0.5) * dLat;
-    const lng = minLng + (c + 0.5) * dLng;
-    const key = `${r},${c}`;
-    if (!visited.has(key)) {
-      boundary.push([lng, lat]);
-      visited.add(key);
-    }
-
-    // Buscar siguiente celda frontera
-    let found = false;
-    for (let i = 0; i < 8; i++) {
-      const nd = (dir + i) % 8;
-      const nr = r + right[nd][0];
-      const nc = c + right[nd][1];
-      if (g[idx(nr, nc)]) {
-        r = nr; c = nc;
-        dir = (nd + 5) % 8; // girar a la derecha del movimiento
-        found = true;
-        break;
-      }
-    }
-    if (!found) break;
-    steps++;
-  } while ((r !== startR || c !== startC) && steps < GRID * GRID);
-
-  if (boundary.length < 5) return null;
-
-  // Cerrar polígono
-  boundary.push(boundary[0]);
-  return boundary;
+  // 4. Convertir a coords [lng, lat]
+  const coords = simplified.map(p => [p.lng, p.lat]);
+  coords.push(coords[0]); // cerrar polígono
+  return coords;
 }
 
 // ═══════════════════════════════════════════════
