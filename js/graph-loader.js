@@ -59,10 +59,6 @@ export function loadCityGraph(cityName) {
 
     const handler = (e) => {
       const { cmd } = e.data;
-      if (cmd === 'debug') {
-        console.log('[Dijkstra Worker]', e.data.message);
-        return;
-      }
       if (cmd === 'loaded') {
         clearTimeout(timeout);
         w.removeEventListener('message', handler);

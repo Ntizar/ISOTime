@@ -112,9 +112,16 @@ function parseGraph(buffer) {
   for (let i = 0; i < 32 && nameBytes[i] !== 0; i++) city += String.fromCharCode(nameBytes[i]);
   offset += 32;
 
-  // Nodes: lat(f32) × N + lng(f32) × N
-  const nodeCoords = new Float32Array(buffer, offset, numNodes * 2);
-  offset += numNodes * 2 * 4;
+  // Nodes: lat(f32) × N + lng(f32) × N → interleave to [lat0,lng0, lat1,lng1, ...]
+  const rawLats = new Float32Array(buffer, offset, numNodes);
+  offset += numNodes * 4;
+  const rawLngs = new Float32Array(buffer, offset, numNodes);
+  offset += numNodes * 4;
+  const nodeCoords = new Float32Array(numNodes * 2);
+  for (let i = 0; i < numNodes; i++) {
+    nodeCoords[i * 2] = rawLats[i];
+    nodeCoords[i * 2 + 1] = rawLngs[i];
+  }
 
   // CSR offsets: u32 × (N+1)
   const nodeOffsets = new Uint32Array(buffer, offset, numNodes + 1);
@@ -316,7 +323,6 @@ self.onmessage = async function(e) {
       // Worker self.location.href gives us the worker script URL
       const baseUrl = self.location.href.replace(/js\/[^/]*$/, '');
       const url = `${baseUrl}data/graphs/${city}.bin`;
-      self.postMessage({ cmd: 'debug', message: `Fetching graph from: ${url} (self.location=${self.location.href})` });
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Grafo no encontrado: ${city} (HTTP ${response.status})`);
       const buffer = await response.arrayBuffer();
