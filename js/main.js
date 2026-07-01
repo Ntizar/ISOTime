@@ -8,6 +8,7 @@ import { hasLocalGraph, findNearestCity } from './graph-loader.js';
 let currentMode = CONFIG.DEFAULT_MODE;
 let currentTime = CONFIG.DEFAULT_TIME;
 let currentGeoJSON = null;
+let currentEngine = 'auto';
 let isLoading = false;
 
 function init() {
@@ -20,6 +21,7 @@ function init() {
   setupExportButtons();
   setupMapClick();
   setupSettingsButton();
+  setupEngineSelector();
   checkApiKey();
 }
 
@@ -146,7 +148,7 @@ function setupCalculateButton() {
     }
     setLoading(true);
     try {
-      const result = await calcularIsocrona(origin.lng, origin.lat, currentMode, currentTime);
+      const result = await calcularIsocrona(origin.lng, origin.lat, currentMode, currentTime, currentEngine);
       currentGeoJSON = result.geojson;
       clearLayers();
       addPoint(origin.lat, origin.lng);
@@ -188,7 +190,7 @@ function updateResultDisplay(result) {
     const source = result.geojson?.features?.[0]?.properties?.source;
     if (result.simulated) {
       warning.style.display = 'flex';
-      warning.querySelector('.warning-text').textContent = '⚠️ Modo simulación — Configure API key de ORS o use modo coche para datos reales OSRM';
+      warning.querySelector('.warning-text').textContent = '⚠️ Modo simulación — Configure API key de ORS o seleccione otro motor para datos reales';
       warning.style.background = '#fef3c7';
       warning.style.borderColor = '#fcd34d';
       warning.style.color = '#92400e';
@@ -278,6 +280,28 @@ function setupSettingsButton() {
       if (e.target === modal) hideApiKeyModal();
     });
   }
+}
+
+function setupEngineSelector() {
+  const select = document.getElementById('engine-select');
+  const info = document.getElementById('engine-info');
+  if (!select) return;
+
+  const descriptions = {
+    auto: 'Cascade: ORS → Dijkstra → OSRM → Simulación',
+    ors: 'Máxima precisión — necesita API key de OpenRouteService',
+    dijkstra: 'Grafo viario local — disponible en 4 ciudades españolas',
+    osrm: 'Routing público sin key — coche y andando',
+    sim: 'Aproximación circular — sin datos reales'
+  };
+
+  select.addEventListener('change', () => {
+    currentEngine = select.value;
+    if (info) info.textContent = descriptions[currentEngine] || '';
+  });
+
+  // Show initial description
+  if (info) info.textContent = descriptions[select.value] || '';
 }
 
 document.addEventListener('DOMContentLoaded', init);

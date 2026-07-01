@@ -5,7 +5,25 @@ import { calcularIsocronaLocal, hasLocalGraph } from './graph-loader.js';
 // ═══════════════════════════════════════════════
 // MAIN: Calcular isócrona (ORS → Dijkstra local → OSRM → Sim)
 // ═══════════════════════════════════════════════
-export async function calcularIsocrona(lng, lat, modo, minutos) {
+export async function calcularIsocrona(lng, lat, modo, minutos, engine = 'auto') {
+  // Engine selection: auto uses cascade, specific engines force that engine
+  if (engine === 'ors') {
+    const apiKey = localStorage.getItem(CONFIG.STORAGE_KEY);
+    if (!apiKey) throw new Error('ORS requiere API key. Configúrela con el botón ⚙️');
+    return await calcularIsocronaORS(lng, lat, modo, minutos, apiKey);
+  }
+  if (engine === 'dijkstra') {
+    if (!hasLocalGraph(lat, lng)) throw new Error('No hay grafo local para esta ubicación');
+    return await calcularIsocronaLocal(lat, lng, modo, minutos);
+  }
+  if (engine === 'osrm') {
+    return await calcularIsocronaOSRM(lng, lat, minutos, modo);
+  }
+  if (engine === 'sim') {
+    return calcularIsocronaSim(lng, lat, modo, minutos);
+  }
+
+  // Auto cascade: ORS → Dijkstra → OSRM → Sim
   // 1. ORS API (con key del usuario) — máxima precisión
   const apiKey = localStorage.getItem(CONFIG.STORAGE_KEY);
   if (apiKey) {
@@ -25,10 +43,10 @@ export async function calcularIsocrona(lng, lat, modo, minutos) {
     }
   }
 
-  // 3. OSRM público (sin key) — solo coche, boundary detection
-  if (modo === 'car') {
+  // 3. OSRM público (sin key) — boundary detection, coche y andando
+  if (modo === 'car' || modo === 'walking') {
     try {
-      return await calcularIsocronaOSRM(lng, lat, minutos);
+      return await calcularIsocronaOSRM(lng, lat, minutos, modo);
     } catch (e) {
       console.warn('OSRM failed, using simulation:', e.message);
     }
@@ -80,14 +98,18 @@ async function calcularIsocronaORS(lng, lat, modo, minutos, apiKey) {
 // ═══════════════════════════════════════════════
 // OSRM público — Boundary detection por dirección
 // ═══════════════════════════════════════════════
-async function calcularIsocronaOSRM(lng, lat, minutos) {
+async function calcularIsocronaOSRM(lng, lat, minutos, modo = 'car') {
+  const profile = CONFIG.OSRM_PROFILES[modo] || 'driving';
   const N_DIR = 72;           // 72 direcciones (cada 5°)
   const BATCH_MAX = 89;       // OSRM soporta ~100 coords
   const targetSec = minutos * 60;
 
-  // Radios adaptativos según tiempo (km)
-  const radioMaxEstimado = Math.max(minutos * 0.9, 5);
-  const radios = [2, 5, 8, 12, 18, 25, 35, 50, 65, 80].filter(r => r <= radioMaxEstimado);
+  // Velocidad estimada por modo para radios adaptativos
+  const speedKmh = modo === 'walking' ? 5 : 50;
+
+  // Radios adaptativos según tiempo y modo (km)
+  const radioMaxEstimado = Math.max(minutos * speedKmh / 60, 2);
+  const radios = [1, 2, 3, 5, 8, 12, 18, 25, 35, 50, 65, 80].filter(r => r <= radioMaxEstimado);
 
   // 1. Generar puntos radiales: radios × direcciones
   const puntos = [];
@@ -106,7 +128,7 @@ async function calcularIsocronaOSRM(lng, lat, minutos) {
   
   for (let b = 0; b < puntos.length; b += BATCH_MAX) {
     const batch = [origin, ...puntos.slice(b, b + BATCH_MAX)];
-    const durations = await queryOSRMTableBatch(batch);
+    const durations = await queryOSRMTableBatch(batch, profile);
     for (let i = 1; i < batch.length; i++) {
       if (durations[i] !== null && durations[i] !== undefined) {
         resultados.push({
@@ -169,7 +191,7 @@ async function calcularIsocronaOSRM(lng, lat, minutos) {
     features: [{
       type: 'Feature',
       properties: {
-        mode: 'car',
+        mode: modo,
         time_min: minutos,
         area_km2: parseFloat(areaKm2),
         centro_lat: lat,
@@ -188,9 +210,9 @@ async function calcularIsocronaOSRM(lng, lat, minutos) {
 // ═══════════════════════════════════════════════
 // OSRM Table Query
 // ═══════════════════════════════════════════════
-async function queryOSRMTableBatch(batch) {
+async function queryOSRMTableBatch(batch, profile = 'driving') {
   const coords = batch.map(p => `${p.lng},${p.lat}`).join(';');
-  const url = `${CONFIG.OSRM_BASE}/table/v1/driving/${coords}?annotations=duration`;
+  const url = `${CONFIG.OSRM_BASE}/table/v1/${profile}/${coords}?annotations=duration`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CONFIG.OSRM_TIMEOUT);
   try {

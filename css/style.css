@@ -331,3 +331,27 @@ body {
   color: #065f46;
   border: 1px solid #6ee7b7;
 }
+
+/* Selector de motor */
+.engine-selector { display: flex; flex-direction: column; gap: 6px; }
+.engine-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  background: white;
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.engine-select:focus { border-color: var(--primary); }
+.engine-info {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+  padding: 4px 0;
+  min-height: 16px;
+}

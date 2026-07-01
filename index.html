@@ -29,6 +29,19 @@
         </div>
       </section>
       <section class="sidebar-section">
+        <h3 class="section-title">🧠 Motor de cálculo</h3>
+        <div class="engine-selector">
+          <select id="engine-select" class="engine-select">
+            <option value="auto" selected>Automático (cascade)</option>
+            <option value="ors">ORS API (máxima precisión)</option>
+            <option value="dijkstra">Dijkstra local (grafo viario)</option>
+            <option value="osrm">OSRM público (sin key)</option>
+            <option value="sim">Simulación (aproximado)</option>
+          </select>
+          <div id="engine-info" class="engine-info"></div>
+        </div>
+      </section>
+      <section class="sidebar-section">
         <h3 class="section-title">🚶 Modo de desplazamiento</h3>
         <div class="mode-selector">
           <button class="mode-btn" data-mode="walking">
@@ -134,6 +147,6 @@
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script type="module" src="js/main.js?v=6"></script>
+  <script type="module" src="js/main.js?v=7"></script>
 </body>
 </html>

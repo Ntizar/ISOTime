@@ -2,6 +2,7 @@ export const CONFIG = {
   ORS_BASE: 'https://api.openrouteservice.org/v2',
   NOMINATIM_BASE: 'https://nominatim.openstreetmap.org',
   PROFILES: { walking: 'foot-walking', car: 'driving-car' },
+  OSRM_PROFILES: { walking: 'foot', car: 'driving' },
   SPEEDS: { walking: 5, car: 50 },
   COLORS: { walking: '#2563eb', car: '#f97316' },
   MODES: { walking: 'Andando', car: 'Coche' },
