@@ -353,11 +353,16 @@ self.onmessage = async function(e) {
       // 1. Encontrar nodo más cercano al punto del usuario
       const originNode = findNearestNode(lat, lng);
 
+      const originLat2 = graph.nodeCoords[originNode * 2];
+      const originLng2 = graph.nodeCoords[originNode * 2 + 1];
+
       // 2. Dijkstra
       const reachable = dijkstra(originNode, cutoffSec, modeSpeed);
 
+      self.postMessage({ cmd: 'debug', message: `isochrone: origin=${originLat2},${originLng2} node=${originNode} reachable=${reachable.length} cutoff=${cutoffSec} speed=${modeSpeed}` });
+
       if (reachable.length < 3) {
-        throw new Error('Muy pocos nodos alcanzables');
+        throw new Error(`Muy pocos nodos alcanzables (${reachable.length}). Origin: ${originLat2?.toFixed(6)},${originLng2?.toFixed(6)} node=${originNode}`);
       }
 
       // 3. Boundary detection → polígono
